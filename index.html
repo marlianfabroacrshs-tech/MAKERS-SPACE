@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -49,6 +48,7 @@ button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color
   <div class="tabs" style="margin-top:12px">
     <button class="on" data-t="search">Search</button>
     <button data-t="out" class="adv" hidden>Borrowed now</button>
+    <button data-t="mine" id="mineTab" hidden>My borrowed items</button>
     <button data-t="add" class="adv" hidden>Add item</button>
   </div>
 
@@ -59,6 +59,7 @@ button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color
   </div>
 
   <div id="t-out" hidden style="margin-top:14px"><div id="outList"></div></div>
+  <div id="t-mine" hidden style="margin-top:14px"><div id="mineList"></div></div>
 
   <div id="t-add" hidden style="margin-top:14px" class="box">
     <label>Item name<input id="a-name"></label>
@@ -75,7 +76,7 @@ button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 // ====== PASTE YOUR SUPABASE VALUES HERE ======
-const SUPABASE_URL = "https://yxainifsyxkoxxcaewrf.supabase.co";
+const SUPABASE_URL = "https://yxainifsyxkoxxcaewrf.supabase.co"; 
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4YWluaWZzeXhrb3h4Y2Fld3JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MDAwMjQsImV4cCI6MjEwNzI3NjAyNH0.er5P6DD3zlKZHHxGWTPIBr39ut2jfqvmaeJh8CIYzfQ";
 // =============================================
 
@@ -119,6 +120,7 @@ async function enter(user) {
   isAdviser = p?.role === 'adviser';
   $('#who').textContent = (p?.full_name || user.email) + (isAdviser ? ' (adviser)' : ' (student)');
   document.querySelectorAll('.adv').forEach(b => b.hidden = !isAdviser);
+  $('#mineTab').hidden = isAdviser;
   $('#login').hidden = true; $('#app').hidden = false;
   await load();
 }
@@ -152,7 +154,7 @@ function render() {
       <div><h3>${esc(i.name)}</h3><span class="mut">${esc(i.kind)}${i.category ? ' · ' + esc(i.category) : ''}</span><br>
         <span class="loc">${esc(i.location || 'No location set')}</span></div>
       <span class="pill ${cls}">${label}</span>
-      ${isAdviser ? `<div class="acts"><button onclick="borrow(${i.id})">Mark borrowed</button><button onclick="move(${i.id})">Change location</button><button onclick="remove(${i.id})">Delete</button></div>` : ''}
+      ${isAdviser ? `<div class="acts"><button onclick="borrow(${i.id})">Mark borrowed</button><button onclick="move(${i.id})">Change location</button><button onclick="remove(${i.id})">Delete</button></div>` : `<div class="acts"><button class="p" onclick="studentBorrow(${i.id})" ${i.available < 1 ? 'disabled' : ''}>Borrow</button></div>`}
     </div>`;
   }).join('');
 }
@@ -195,6 +197,31 @@ async function giveBack(id) {
   const { error } = await sb.from('loans').update({ returned_at: new Date().toISOString() }).eq('id', id);
   error ? alert(error.message) : (loadOut(), load());
 }
+async function studentBorrow(id) {
+  const it = items.find(i => i.id === id);
+  let qty = 1;
+  if (it.available > 1) {
+    qty = parseInt(prompt(`How many "${it.name}" do you need? (${it.available} available)`, '1'), 10);
+    if (!qty) return;
+  }
+  const { error } = await sb.rpc('student_borrow', { p_item: id, p_qty: qty });
+  if (error) return alert(error.message);
+  alert('Borrowed. Pick it up from: ' + (it.location || 'the Makerspace') + '. Return it when you are done.');
+  load();
+}
+async function loadMine() {
+  const { data, error } = await sb.from('loans').select('id,qty,borrowed_at,items(name)').eq('borrower_id', me.id).is('returned_at', null).order('borrowed_at');
+  if (error) return $('#mineList').innerHTML = `<p class="err">${esc(error.message)}</p>`;
+  $('#mineList').innerHTML = data.length ? data.map(l => `<div class="box item"><div><h3>${esc(l.items.name)} × ${l.qty}</h3>
+    <span class="mut">Borrowed ${new Date(l.borrowed_at).toLocaleDateString()}</span></div>
+    <button class="p" onclick="giveBackMine(${l.id})">Return</button></div>`).join('')
+    : '<p class="mut">You have nothing borrowed right now.</p>';
+}
+async function giveBackMine(id) {
+  if (!confirm('Mark this item as returned?')) return;
+  const { error } = await sb.rpc('student_return', { p_loan: id });
+  error ? alert(error.message) : (loadMine(), load());
+}
 $('#a-save').onclick = async () => {
   const name = $('#a-name').value.trim(); $('#a-err').textContent = '';
   if (!name) return $('#a-err').textContent = 'Enter an item name.';
@@ -207,8 +234,9 @@ $('#a-save').onclick = async () => {
 
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['search', 'out', 'add'].forEach(t => $('#t-' + t).hidden = b.dataset.t !== t);
+  ['search', 'out', 'add', 'mine'].forEach(t => $('#t-' + t).hidden = b.dataset.t !== t);
   if (b.dataset.t === 'out') loadOut();
+  if (b.dataset.t === 'mine') loadMine();
 });
 </script>
 </html>
