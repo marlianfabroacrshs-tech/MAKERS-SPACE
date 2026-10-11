@@ -1,0 +1,214 @@
+
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Makerspace Tracker</title>
+<style>
+:root{--bg:#e8edf1;--ink:#14202b;--card:#fff;--ac:#0b7a75;--mut:#5b6b78;--line:#cdd6dd;--warn:#b45f06;--bad:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#10171d;--ink:#e5ebf0;--card:#18222b;--ac:#4fd1c5;--mut:#93a3b0;--line:#2c3a46;--warn:#f0b061;--bad:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Trebuchet MS","Segoe UI",sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px}
+h1{font:700 26px/1.2 "Trebuchet MS",sans-serif;margin:0}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px}
+input,select,button{font:inherit;padding:9px 12px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+input,select{width:100%;margin:4px 0 12px}
+button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color:var(--bg);font-weight:700}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.tabs button{border:0;background:none;border-bottom:2px solid transparent;border-radius:0;padding:8px 4px;margin-right:16px;color:var(--mut)}
+.tabs .on{color:var(--ink);border-color:var(--ac)}
+.chips button{border-radius:999px;padding:5px 14px;margin:0 6px 6px 0}.chips .on{background:var(--ac);color:var(--bg);border-color:var(--ac)}
+.item{display:grid;grid-template-columns:1fr auto;gap:6px 16px;align-items:center;margin-top:10px}
+.item h3{margin:0;font-size:17px}.mut{color:var(--mut)}
+.loc{display:inline-block;border:2px dashed var(--ac);border-radius:4px;padding:2px 10px;font-weight:700;margin-top:4px}
+.pill{font-weight:700;padding:3px 12px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.ok{color:var(--ac)}.low{color:var(--warn)}.none{color:var(--bad)}
+.acts{grid-column:1/-1}.acts button{padding:5px 12px;margin-right:6px;font-size:13px}
+.err{color:var(--bad);min-height:22px}[hidden]{display:none!important}
+.setup{max-width:560px;margin:10vh auto}
+</style>
+<main>
+<section id="setup" class="box setup" hidden>
+  <h1>Almost there</h1>
+  <p>Open <b>index.html</b> in a text editor and paste your Supabase <b>Project URL</b> and <b>anon key</b> at the top of the script. Steps are in the README notes from Claude.</p>
+</section>
+
+<section id="login" class="box" style="max-width:400px;margin:10vh auto" hidden>
+  <h1>Makerspace</h1><p class="mut" id="lsub">Log in to search the robotics laboratory inventory.</p>
+  <div id="nameWrap" hidden><label>Full name<input id="fn" autocomplete="name"></label></div>
+  <label>Email<input id="em" type="email" autocomplete="email"></label>
+  <label>Password<input id="pw" type="password" autocomplete="current-password"></label>
+  <div class="err" id="err" role="alert"></div>
+  <button class="p" id="go">Log in</button> <button id="sw">New student? Create account</button>
+</section>
+
+<section id="app" hidden>
+  <div class="row"><div><h1>Makerspace</h1><span class="mut" id="who"></span></div><button id="out">Log out</button></div>
+  <div class="tabs" style="margin-top:12px">
+    <button class="on" data-t="search">Search</button>
+    <button data-t="out" class="adv" hidden>Borrowed now</button>
+    <button data-t="add" class="adv" hidden>Add item</button>
+  </div>
+
+  <div id="t-search" style="margin-top:14px">
+    <input id="q" type="search" placeholder="Search a tool, component or equipment, e.g. screwdriver" aria-label="Search items">
+    <div class="chips" id="chips"></div>
+    <div id="list"></div>
+  </div>
+
+  <div id="t-out" hidden style="margin-top:14px"><div id="outList"></div></div>
+
+  <div id="t-add" hidden style="margin-top:14px" class="box">
+    <label>Item name<input id="a-name"></label>
+    <label>Type<select id="a-kind"><option>tool</option><option>component</option><option>equipment</option></select></label>
+    <label>Category (optional)<input id="a-cat" placeholder="e.g. Hand tools"></label>
+    <label>Quantity<input id="a-qty" type="number" min="0" value="1"></label>
+    <label>Location<input id="a-loc" list="locs" placeholder="e.g. Cabinet A, Drawer 2"><datalist id="locs"></datalist></label>
+    <div class="err" id="a-err" role="alert"></div>
+    <button class="p" id="a-save">Save item</button>
+  </div>
+</section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+// ====== PASTE YOUR SUPABASE VALUES HERE ======
+const SUPABASE_URL = "https://yxainifsyxkoxxcaewrf.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4YWluaWZzeXhrb3h4Y2Fld3JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE3MDAwMjQsImV4cCI6MjEwNzI3NjAyNH0.er5P6DD3zlKZHHxGWTPIBr39ut2jfqvmaeJh8CIYzfQ";
+// =============================================
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let sb, me = null, isAdviser = false, items = [], kind = 'all', signup = false;
+
+if (SUPABASE_URL.startsWith('PASTE')) { $('#setup').hidden = false; }
+else { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); boot(); }
+
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  session ? enter(session.user) : ($('#login').hidden = false);
+}
+
+$('#sw').onclick = () => {
+  signup = !signup; $('#nameWrap').hidden = !signup;
+  $('#go').textContent = signup ? 'Create account' : 'Log in';
+  $('#sw').textContent = signup ? 'Back to log in' : 'New student? Create account'; $('#err').textContent = '';
+};
+$('#go').onclick = async () => {
+  $('#err').textContent = '';
+  const email = $('#em').value.trim(), password = $('#pw').value;
+  if (signup) {
+    const full_name = $('#fn').value.trim();
+    if (!full_name || password.length < 6) return $('#err').textContent = 'Enter your name and a password of 6+ characters.';
+    const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name } } });
+    if (error) return $('#err').textContent = error.message;
+    if (!data.session) { $('#sw').click(); return $('#err').textContent = 'Account created. Check your email to confirm, then log in.'; }
+    return enter(data.user);
+  }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) return $('#err').textContent = 'Wrong email or password.';
+  enter(data.user);
+};
+$('#out').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+
+async function enter(user) {
+  me = user;
+  const { data: p } = await sb.from('profiles').select('full_name,role').eq('id', user.id).single();
+  isAdviser = p?.role === 'adviser';
+  $('#who').textContent = (p?.full_name || user.email) + (isAdviser ? ' (adviser)' : ' (student)');
+  document.querySelectorAll('.adv').forEach(b => b.hidden = !isAdviser);
+  $('#login').hidden = true; $('#app').hidden = false;
+  await load();
+}
+
+async function load() {
+  const { data, error } = await sb.from('item_status').select('*').order('name');
+  if (error) { $('#list').innerHTML = `<p class="err">Could not load items: ${esc(error.message)}</p>`; return; }
+  items = data;
+  const kinds = ['all', ...new Set(items.map(i => i.kind))];
+  $('#chips').innerHTML = kinds.map(k => `<button class="${k === kind ? 'on' : ''}" data-k="${k}">${k === 'all' ? 'All' : k}</button>`).join('');
+  $('#chips').querySelectorAll('button').forEach(b => b.onclick = () => { kind = b.dataset.k; load2(); });
+  const locs = [...new Set(items.map(i => i.location).filter(Boolean))];
+  $('#locs').innerHTML = locs.map(l => `<option value="${esc(l)}">`).join('');
+  load2();
+}
+function load2() {
+  $('#chips').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === kind));
+  render();
+}
+$('#q').oninput = render;
+
+function render() {
+  const q = $('#q').value.trim().toLowerCase();
+  const rows = items.filter(i => (kind === 'all' || i.kind === kind) &&
+    (!q || [i.name, i.category, i.notes, i.location].some(v => (v || '').toLowerCase().includes(q))));
+  if (!rows.length) { $('#list').innerHTML = `<p class="mut">${items.length ? 'Nothing matches that search. Try a shorter word.' : 'No items yet.'}</p>`; return; }
+  $('#list').innerHTML = rows.map(i => {
+    const cls = i.available === 0 ? 'none' : i.available < i.total ? 'low' : 'ok';
+    const label = i.available === 0 ? 'All borrowed' : `${i.available} of ${i.total} available`;
+    return `<div class="box item">
+      <div><h3>${esc(i.name)}</h3><span class="mut">${esc(i.kind)}${i.category ? ' · ' + esc(i.category) : ''}</span><br>
+        <span class="loc">${esc(i.location || 'No location set')}</span></div>
+      <span class="pill ${cls}">${label}</span>
+      ${isAdviser ? `<div class="acts"><button onclick="borrow(${i.id})">Mark borrowed</button><button onclick="move(${i.id})">Change location</button><button onclick="remove(${i.id})">Delete</button></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ---------- adviser actions ----------
+async function borrow(id) {
+  const it = items.find(i => i.id === id);
+  const who = prompt(`Who is borrowing "${it.name}"?`); if (!who) return;
+  const qty = parseInt(prompt(`How many? (${it.available} available)`, '1'), 10);
+  if (!qty || qty < 1 || qty > it.available) return alert(`Enter a number from 1 to ${it.available}.`);
+  const { error } = await sb.from('loans').insert({ item_id: id, borrower: who.trim(), qty });
+  error ? alert(error.message) : load();
+}
+async function locId(name) {
+  name = name.trim(); if (!name) return null;
+  const { data } = await sb.from('locations').upsert({ name }, { onConflict: 'name' }).select('id').single();
+  return data?.id ?? null;
+}
+async function move(id) {
+  const it = items.find(i => i.id === id);
+  const name = prompt('New location:', it.location || ''); if (name === null) return;
+  const { error } = await sb.from('items').update({ location_id: await locId(name) }).eq('id', id);
+  error ? alert(error.message) : load();
+}
+async function remove(id) {
+  const it = items.find(i => i.id === id);
+  if (!confirm(`Delete "${it.name}" and its borrow history?`)) return;
+  const { error } = await sb.from('items').delete().eq('id', id);
+  error ? alert(error.message) : load();
+}
+async function loadOut() {
+  const { data, error } = await sb.from('loans').select('id,borrower,qty,borrowed_at,items(name)').is('returned_at', null).order('borrowed_at');
+  if (error) return $('#outList').innerHTML = `<p class="err">${esc(error.message)}</p>`;
+  $('#outList').innerHTML = data.length ? data.map(l => `<div class="box item"><div><h3>${esc(l.items.name)} × ${l.qty}</h3>
+    <span class="mut">${esc(l.borrower)} · since ${new Date(l.borrowed_at).toLocaleDateString()}</span></div>
+    <button class="p" onclick="giveBack(${l.id})">Mark returned</button></div>`).join('')
+    : '<p class="mut">Nothing is borrowed right now.</p>';
+}
+async function giveBack(id) {
+  const { error } = await sb.from('loans').update({ returned_at: new Date().toISOString() }).eq('id', id);
+  error ? alert(error.message) : (loadOut(), load());
+}
+$('#a-save').onclick = async () => {
+  const name = $('#a-name').value.trim(); $('#a-err').textContent = '';
+  if (!name) return $('#a-err').textContent = 'Enter an item name.';
+  const { error } = await sb.from('items').insert({ name, kind: $('#a-kind').value, category: $('#a-cat').value.trim() || null,
+    total: parseInt($('#a-qty').value, 10) || 0, location_id: await locId($('#a-loc').value) });
+  if (error) return $('#a-err').textContent = error.message;
+  ['#a-name', '#a-cat', '#a-loc'].forEach(s => $(s).value = ''); $('#a-qty').value = 1;
+  await load(); document.querySelector('[data-t=search]').click();
+};
+
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['search', 'out', 'add'].forEach(t => $('#t-' + t).hidden = b.dataset.t !== t);
+  if (b.dataset.t === 'out') loadOut();
+});
+</script>
+</html>
